@@ -1,0 +1,133 @@
+<?xml version='1.0' standalone='yes'?>
+
+<!--
+Files UI - Unraid plugin adding a two-pane file browser as its own "Files"
+tab: folder tree on the left, file list on the right.
+
+Follows the standard community plugin format, see:
+https://wiki.unraid.net/Plugin_Development
+
+Before cutting a release: run package.sh to build the .txz, upload it to a
+GitHub release, then paste the printed MD5 into the MD5 entity below.
+pluginURL points at the raw URL of this file so Unraid's plugin manager can
+check for updates.
+
+Unlike stacksUI, this plugin patches nothing and hides nothing: it adds one
+page and its assets under /usr/local/emhttp/plugins/filesUI/ and leaves the
+built-in File Manager (Shares -> Browse) exactly where it is. That means no
+/boot/config/go boot hooks are needed, and uninstalling is just removepkg.
+-->
+
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "filesUI">
+<!ENTITY author    "macmiller">
+<!-- Version follows year.month.day.n - bump n for each same-day release,
+     reset to 1 when the date changes. package.sh reads this value as its
+     default (single source of truth) rather than generating its own. -->
+<!ENTITY version   "2026.08.04.5">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/macmillernz/unraid.files.plugin/main/filesUI.plg">
+<!ENTITY SRC       "https://github.com/macmillernz/unraid.files.plugin/releases/download/&version;/filesUI-&version;.txz">
+<!-- MD5 of the .txz package.sh currently produces. Re-run package.sh and
+     update this whenever source/ changes, or the plugin manager will
+     refuse the download as corrupt. -->
+<!ENTITY MD5       "605e82db49444c011c64efa6d1e51b2a">
+<!ENTITY emhttp    "/usr/local/emhttp/plugins/&name;">
+<!ENTITY configdir "/boot/config/plugins/&name;">
+]>
+
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" icon="files.png" min="6.12.0">
+
+  <CHANGES>
+###2026.08.04.5
+- Dropped the "User Shares (no cache)" root. It was /mnt/user0, the legacy
+  array-only view of the same shares, so it showed up as a second and
+  usually near-empty "User Shares" next to the real one. Only useful when
+  troubleshooting the mover, and Unraid's own File Manager doesn't offer it
+  as a root either. /mnt/user0 paths are still accepted as a copy/move
+  destination if you type one.
+- The show-hidden-files button now has a visible pressed state and reports
+  what it did ("Showing 2 hidden items", "No hidden items in this folder").
+  It was working all along, but most folders contain no dotfiles, so
+  toggling it looked exactly like a dead button.
+
+###2026.08.04.4
+- Fixed every file operation silently doing nothing. Create, delete,
+  rename, copy, move, change owner and change permissions all queue a job
+  for Unraid's file_manager daemon - and that daemon was never starting.
+  Files.page declares Nchan="file_manager", but emhttp resolves that
+  against the *plugin's own* directory, so it looked for a script this
+  plugin did not ship, and the exec failed silently. Jobs piled up in
+  /var/tmp/file.manager.active and nothing ran, with no error shown.
+  The plugin now ships nchan/file_manager, a supervisor that keeps exactly
+  one engine running - including when Unraid's built-in File Manager is
+  open at the same time, which would otherwise start a second copy.
+- The Files tab now reports it plainly in the status bar if the engine is
+  not running, instead of every button appearing to be dead.
+- package.sh and deploy.sh now mark nchan hooks executable; a 644 there
+  would reintroduce exactly this failure.
+
+###2026.08.04.3
+- Fixed the divider between the preview and the file list resizing the
+  folder tree instead of the preview, snapping it wide on the first drag.
+  The preview had been inserted between the tree and the tree's own
+  divider, so that divider measured across the preview's whole width. The
+  preview now has its own divider, and each one resizes the pane on its
+  immediate left. Preview width is remembered separately from tree width.
+- A pane can no longer be left collapsed: the width clamp could produce an
+  upper bound below the pane's minimum on a narrow window, which then won
+  and stuck, including across reloads.
+
+###2026.08.04.2
+- The "New Folder" button is now just "New", and creates a file instead of
+  a folder when the name you type has an extension (notes.txt, .env). The
+  dialog says which one it will create as you type. Shortening the label
+  also fixes it running into the Upload button.
+- New file preview: selecting a file slides a preview panel out from the
+  left, between the folder tree and the file list. Handles images, video,
+  audio, PDFs and text/code, falls back to a metadata card with a Download
+  button for anything the browser cannot render, and reports clearly when
+  a video's codec is unsupported rather than showing a dead player.
+  Space toggles it, arrow keys move it through the folder, Escape closes.
+
+###2026.08.04.1
+- First release. Adds a "Files" tab with a two-pane browser: lazily-loaded
+  folder tree on the left, sortable file list on the right.
+- Create, rename, delete, copy, move, change owner and change permissions,
+  on single items or a multi-selection, with a queue for when another
+  operation is already running.
+- Upload (button or drag-and-drop, chunked with progress and cancel) and
+  download (single file streamed with resume support, multi-selections
+  and folders streamed as a zip).
+- Reuses Unraid's own file-operation engine rather than reimplementing it,
+  so copy/move report real rsync progress, speed and ETA, and every
+  operation obeys the same /mnt and /boot restrictions the built-in File
+  Manager applies.
+  </CHANGES>
+
+  <!-- Plugin code, packaged as a single txz rooted at / so upgradepkg
+       extracts straight to /usr/local/emhttp/plugins/filesUI/. -->
+  <FILE Name="&configdir;/packages/filesUI-&version;.txz" Run="upgradepkg --install-new">
+    <URL>&SRC;</URL>
+    <MD5>&MD5;</MD5>
+  </FILE>
+
+  <FILE Run="/bin/bash">
+    <INLINE>
+set -e
+mkdir -p "&configdir;"
+echo ""
+echo "Files UI installed. Open the Files tab."
+    </INLINE>
+  </FILE>
+
+  <!-- Uninstall. There is no plugin-owned state to preserve (settings live
+       in the browser's localStorage, not on the flash drive), so this
+       removes the config dir too. -->
+  <FILE Run="/bin/bash" Method="remove">
+    <INLINE>
+removepkg filesUI-&version; || true
+rm -rf "&configdir;"
+    </INLINE>
+  </FILE>
+
+</PLUGIN>

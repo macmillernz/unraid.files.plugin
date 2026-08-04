@@ -1,0 +1,168 @@
+Menu="Tasks:65"
+Title="Files"
+Icon="files.png"
+Code="f07c"
+Nchan="file_manager"
+---
+<?PHP
+/* filesUI - two-pane file browser.
+ *
+ * $var, $docroot and the translation helpers are already populated by
+ * webGui/template.php before this page's body runs (see
+ * include/PageBuilder.php), so $var['csrf_token'] is readable without a
+ * require here - same as stacksUI's Stacks.page.
+ *
+ * Menu="Tasks:65" puts this in the top-level tab bar, between Docker (60)
+ * and Apps (80). Unraid's own File Manager stays where it is - this does
+ * not replace or hide it.
+ *
+ * Nchan="file_manager" is required, not cosmetic: it tells emhttp to run
+ * dynamix's nchan/file_manager daemon while this page is open. That daemon
+ * is what actually executes the jobs Control.php queues (rsync/mv/find/
+ * chown/chmod) and publishes their progress on /sub/filemanager. Without
+ * this line every operation would queue and then sit there forever.
+ *
+ * Code="f07c" is the tab glyph. The nav bar renders it from the font stack
+ * "docker-icon, fontawesome, unraid" (default-base.css), so a FontAwesome
+ * codepoint is valid here - f07c is fa-folder-open. Deliberately not the
+ * Unraid font's own folder glyph (e92a), which the Shares tab already uses.
+ */
+?>
+<link type="text/css" rel="stylesheet" href="<?autov('/plugins/filesUI/css/filesUI.css')?>">
+
+<div id="filesUI-root"
+     data-csrf-token="<?= htmlspecialchars($var['csrf_token'] ?? '') ?>"
+     data-fuse-directio="<?= ($var['fuse_directio'] ?? '') == 1 ? '1' : '' ?>">
+
+  <div class="filesUI-toolbar">
+    <div class="filesUI-toolbar-left">
+      <button id="filesUI-up" class="filesUI-btn filesUI-btn-icon" title="Up one level"><i class="fa fa-level-up"></i></button>
+      <button id="filesUI-refresh" class="filesUI-btn filesUI-btn-icon" title="Refresh"><i class="fa fa-refresh"></i></button>
+      <nav id="filesUI-breadcrumb" class="filesUI-breadcrumb" aria-label="Breadcrumb"></nav>
+    </div>
+    <div class="filesUI-toolbar-right">
+      <input type="text" id="filesUI-filter" class="filesUI-input filesUI-filter" placeholder="Filter&hellip;" autocomplete="off">
+      <button id="filesUI-new" class="filesUI-btn"><i class="fa fa-plus"></i> New</button>
+      <button id="filesUI-upload" class="filesUI-btn"><i class="fa fa-upload"></i> Upload</button>
+      <button id="filesUI-toggle-hidden" class="filesUI-btn filesUI-btn-icon"
+              title="Show hidden files" aria-pressed="false"><i class="fa fa-eye-slash"></i></button>
+    </div>
+  </div>
+
+  <!-- Actions that need a selection. Disabled until something is picked,
+       rather than hidden, so the row doesn't reflow on every click. -->
+  <div id="filesUI-selection-bar" class="filesUI-selection-bar" hidden>
+    <span id="filesUI-selection-count" class="filesUI-selection-count"></span>
+    <div class="filesUI-selection-actions">
+      <button data-op="preview"  class="filesUI-btn filesUI-btn-small"><i class="fa fa-eye"></i> Preview</button>
+      <button data-op="download" class="filesUI-btn filesUI-btn-small"><i class="fa fa-download"></i> Download</button>
+      <button data-op="copy"     class="filesUI-btn filesUI-btn-small"><i class="fa fa-copy"></i> Copy</button>
+      <button data-op="move"     class="filesUI-btn filesUI-btn-small"><i class="fa fa-paste"></i> Move</button>
+      <button data-op="rename"   class="filesUI-btn filesUI-btn-small"><i class="fa fa-edit"></i> Rename</button>
+      <button data-op="owner"    class="filesUI-btn filesUI-btn-small"><i class="fa fa-user-o"></i> Owner</button>
+      <button data-op="perms"    class="filesUI-btn filesUI-btn-small"><i class="fa fa-lock"></i> Permissions</button>
+      <button data-op="size"     class="filesUI-btn filesUI-btn-small"><i class="fa fa-calculator"></i> Size</button>
+      <button data-op="delete"   class="filesUI-btn filesUI-btn-small filesUI-btn-danger"><i class="fa fa-trash-o"></i> Delete</button>
+    </div>
+  </div>
+
+  <div class="filesUI-panes">
+    <aside id="filesUI-tree" class="filesUI-tree" aria-label="Folders">
+      <div class="filesUI-tree-loading">Loading&hellip;</div>
+    </aside>
+
+    <!-- Resize handle for the folder tree. Each handle sits immediately to
+         the right of the pane it resizes; putting the preview between a
+         pane and its handle is what made dragging jump. -->
+    <div id="filesUI-splitter" class="filesUI-splitter" role="separator" aria-orientation="vertical" tabindex="0" title="Resize folder tree"></div>
+
+    <!-- Preview flyout. Sits between the tree and the file list and slides
+         out from the left by animating its own width, so it displaces the
+         list rather than covering it - filenames stay readable while you
+         arrow through them with the preview open. The inner wrapper holds
+         a fixed width so the content doesn't reflow mid-animation.
+         Content is filled in by js/preview.js. -->
+    <aside id="filesUI-preview" class="filesUI-preview" aria-hidden="true" aria-label="Preview">
+      <div class="filesUI-preview-inner">
+        <header class="filesUI-preview-head">
+          <span id="filesUI-preview-title" class="filesUI-preview-title"></span>
+          <button id="filesUI-preview-close" class="filesUI-btn filesUI-btn-icon" title="Close preview">
+            <i class="fa fa-times"></i>
+          </button>
+        </header>
+        <div id="filesUI-preview-body" class="filesUI-preview-body"></div>
+        <footer class="filesUI-preview-foot">
+          <div id="filesUI-preview-meta" class="filesUI-preview-metadata"></div>
+          <button id="filesUI-preview-download" class="filesUI-btn filesUI-btn-small">
+            <i class="fa fa-download"></i> Download
+          </button>
+        </footer>
+      </div>
+    </aside>
+
+    <!-- Resize handle for the preview. CSS shows it only while the preview
+         is open, so it never appears as a second bar against the tree's. -->
+    <div id="filesUI-preview-splitter" class="filesUI-splitter filesUI-splitter--preview"
+         role="separator" aria-orientation="vertical" tabindex="0" title="Resize preview"></div>
+
+    <section id="filesUI-pane" class="filesUI-pane">
+      <table class="filesUI-table">
+        <thead>
+          <tr>
+            <th class="filesUI-col-check"><input type="checkbox" id="filesUI-check-all" aria-label="Select all"></th>
+            <th class="filesUI-col-name"  data-sort="name">Name</th>
+            <th class="filesUI-col-size"  data-sort="size">Size</th>
+            <th class="filesUI-col-mtime" data-sort="mtime">Modified</th>
+            <th class="filesUI-col-owner" data-sort="owner">Owner</th>
+            <th class="filesUI-col-mode"  data-sort="mode">Permissions</th>
+          </tr>
+        </thead>
+        <tbody id="filesUI-rows"></tbody>
+      </table>
+      <div id="filesUI-empty" class="filesUI-empty" hidden>This folder is empty.</div>
+      <div id="filesUI-drop" class="filesUI-drop"><i class="fa fa-upload"></i> Drop files to upload</div>
+    </section>
+  </div>
+
+  <div class="filesUI-statusbar">
+    <span id="filesUI-status"></span>
+    <span id="filesUI-usage" class="filesUI-usage"></span>
+  </div>
+</div>
+
+<input type="file" id="filesUI-file-input" multiple hidden>
+
+<!-- Context menu, positioned at the pointer by js/contextMenu.js -->
+<div id="filesUI-context" class="filesUI-context" hidden></div>
+
+<!-- Generic modal shell; js/modal.js fills in the title, body and buttons
+     for each operation rather than the page carrying one block per dialog. -->
+<div id="filesUI-modal-overlay" class="filesUI-modal-overlay" hidden>
+  <div class="filesUI-modal" role="dialog" aria-modal="true" aria-labelledby="filesUI-modal-title">
+    <h2 id="filesUI-modal-title"></h2>
+    <div id="filesUI-modal-body"></div>
+    <p id="filesUI-modal-error" class="filesUI-error" hidden></p>
+    <div id="filesUI-modal-actions" class="filesUI-modal-actions"></div>
+  </div>
+</div>
+
+<!-- Progress strip for an in-flight operation. Fed by the /sub/filemanager
+     nchan channel for file operations, and directly by the uploader for
+     uploads. -->
+<div id="filesUI-progress" class="filesUI-progress" hidden>
+  <div class="filesUI-progress-head">
+    <span id="filesUI-progress-title"></span>
+    <button id="filesUI-progress-cancel" class="filesUI-btn filesUI-btn-small">Cancel</button>
+  </div>
+  <div class="filesUI-progress-track"><div id="filesUI-progress-bar" class="filesUI-progress-bar"></div></div>
+  <div id="filesUI-progress-text" class="filesUI-progress-text"></div>
+</div>
+
+<script src="<?autov('/plugins/filesUI/js/api.js')?>"></script>
+<script src="<?autov('/plugins/filesUI/js/modal.js')?>"></script>
+<script src="<?autov('/plugins/filesUI/js/contextMenu.js')?>"></script>
+<script src="<?autov('/plugins/filesUI/js/tree.js')?>"></script>
+<script src="<?autov('/plugins/filesUI/js/preview.js')?>"></script>
+<script src="<?autov('/plugins/filesUI/js/operations.js')?>"></script>
+<script src="<?autov('/plugins/filesUI/js/transfer.js')?>"></script>
+<script src="<?autov('/plugins/filesUI/js/filesUI.js')?>"></script>

@@ -1,0 +1,43 @@
+#!/bin/bash
+# filesUI - nchan hook that keeps Unraid's file-operation engine alive.
+#
+# Why this file has to exist at all:
+#   Files.page declares Nchan="file_manager". emhttp turns that into a path
+#   relative to *this plugin's own directory* (see nchan_merge() in
+#   dynamix/template.php: $nchan_run = "$root/nchan"), i.e.
+#   plugins/filesUI/nchan/file_manager - not dynamix's copy. With no such
+#   file the exec silently failed, no engine ran, and every queued job
+#   (create, delete, rename, chown, chmod, copy, move) sat in
+#   /var/tmp/file.manager.active forever while the UI waited. Shipping this
+#   file is what makes the declaration work.
+#
+# Why it is a supervisor rather than a copy of the engine:
+#   The real engine is dynamix's, and duplicating it would guarantee drift.
+#   It also must not run twice - two engines polling the same
+#   /var/tmp/file.manager.active can both launch the same rsync in the
+#   window before either writes the pid file. Unraid's built-in File
+#   Manager registers the engine under a *different* path
+#   (webGui/nchan/file_manager), and emhttp de-duplicates by exact path
+#   string, so if both that page and the Files tab are open emhttp would
+#   happily start one of each. This wrapper closes that hole: it starts the
+#   engine only when no instance is running, and keeps watching so the
+#   engine comes back if it dies while the tab is still open.
+
+ENGINE="/usr/local/emhttp/webGui/nchan/file_manager"
+
+# Nothing to supervise if the base OS layout ever changes - exit quietly
+# rather than spinning.
+[ -x "$ENGINE" ] || exit 0
+
+# Match the engine's real command line ("/usr/bin/php -q <path>"), not this
+# wrapper's own, which shares the file_manager basename.
+engine_running() {
+  pgrep -f "php .*${ENGINE}\$" >/dev/null 2>&1
+}
+
+while true; do
+  if ! engine_running; then
+    "$ENGINE" >/dev/null 2>&1 &
+  fi
+  sleep 5
+done

@@ -1,0 +1,468 @@
+/* filesUI - two-pane file browser.
+ *
+ * Same approach as stacksUI's stylesheet: lean on Unraid's own theming
+ * instead of a bolted-on look. Colors come from
+ * webGui/styles/default-color-palette.css (--gray-*, --blue-*, --red-*)
+ * and the per-theme variables (--text-color, --border-color,
+ * --mild-background-color, --alt-text-color) so the plugin follows
+ * whichever theme the user picked (white/black/azure/gray) instead of
+ * looking static regardless of it. Plain <button>/<input> already inherit
+ * Unraid's native look from default-base.css - we only reset the default
+ * 10px/12px button margin, which is sized for spaced-out settings forms
+ * and far too loose for a dense toolbar.
+ */
+
+#filesUI-root {
+  padding: 10px 0;
+  /* Fill the viewport below Unraid's header so the two panes scroll
+     internally rather than growing the page - a directory of 50,000 files
+     must not produce a 50,000-row-tall document. */
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 210px);
+  min-height: 420px;
+}
+
+/* ------------------------------------------------------------- toolbar */
+
+.filesUI-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 10px; flex: 0 0 auto;
+}
+.filesUI-toolbar-left  { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.filesUI-toolbar-right { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+
+/* Unraid's native button style sets a min-width sized for settings forms.
+   In a toolbar that competes with the breadcrumb for space, that made
+   labels run past their button and collide with the next one. Pinning the
+   buttons at their natural width and letting the breadcrumb absorb the
+   shortfall (it scrolls) keeps them apart at any window size. */
+.filesUI-btn {
+  margin: 0;
+  min-width: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.filesUI-btn-small { font-size: 1rem; padding: 5px 10px; min-width: 0; }
+.filesUI-btn-icon  { padding: 5px 10px; min-width: 0; }
+.filesUI-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+/* Pressed state for toggle buttons. Unraid's native button style has no
+   "on" appearance of its own, and an icon swap alone reads as no feedback
+   at all - especially in a folder with nothing hidden to reveal. */
+.filesUI-btn.is-active {
+  background: var(--blue-700);
+  border-color: var(--blue-700);
+  color: var(--white);
+}
+/* Unraid has no "danger" button convention (its --button-background brand
+   gradient is applied uniformly), so rather than invent a red button we
+   just tint the label - and Delete confirms in a modal regardless. */
+.filesUI-btn-danger { color: var(--red-800); }
+
+.filesUI-input { margin: 0; }
+.filesUI-filter { max-width: 200px; }
+
+/* --------------------------------------------------------- breadcrumb */
+
+.filesUI-breadcrumb {
+  display: flex; align-items: center; flex-wrap: nowrap;
+  gap: 2px; min-width: 0; overflow-x: auto; overflow-y: hidden;
+  font-size: 13px; white-space: nowrap;
+  scrollbar-width: thin;
+}
+.filesUI-crumb {
+  padding: 3px 7px; border-radius: 4px; cursor: pointer;
+  color: var(--text-color); text-decoration: none;
+}
+.filesUI-crumb:hover { background: var(--mild-background-color); }
+.filesUI-crumb-last { font-weight: bold; cursor: default; }
+.filesUI-crumb-last:hover { background: none; }
+.filesUI-crumb-sep { color: var(--alt-text-color); user-select: none; }
+
+/* ----------------------------------------------------- selection bar */
+
+.filesUI-selection-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; flex: 0 0 auto;
+  padding: 7px 12px; margin-bottom: 10px;
+  border: 1px solid var(--border-color); border-radius: 6px;
+  background: var(--mild-background-color);
+}
+.filesUI-selection-bar[hidden] { display: none; }
+.filesUI-selection-count { font-size: 13px; color: var(--alt-text-color); }
+.filesUI-selection-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* --------------------------------------------------------- two panes */
+
+.filesUI-panes {
+  display: flex; flex: 1 1 auto; min-height: 0;
+  border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden;
+  /* Anchor for the preview flyout, which is absolutely positioned inside
+     this box so it covers the tree rather than the whole page. */
+  position: relative;
+}
+
+/* Layout of the left pane specifically - only the sizing lives here, so
+   the same tree renders correctly in the dialog picker too. */
+.filesUI-tree {
+  flex: 0 0 260px; width: 260px; min-width: 140px; max-width: 60%;
+  overflow: auto;
+  background: var(--mild-background-color);
+}
+/* Applies to every mounted tree, left pane and dialog picker alike. */
+.filesUI-treeview { padding: 8px 0; font-size: 13px; user-select: none; }
+.filesUI-tree-loading { padding: 8px 14px; color: var(--alt-text-color); font-style: italic; }
+
+/* Keyed off .filesUI-treeview, which the Tree component stamps on
+   whichever element it mounts into - the left pane and the copy/move
+   dialog's destination picker share these styles that way. */
+.filesUI-treeview ul { list-style: none; margin: 0; padding: 0; }
+/* Indentation is applied per-row via padding-left (set inline from the
+   node's depth) rather than by nesting margins, so the hover/selected
+   highlight still spans the full pane width at every level. */
+.filesUI-tree-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 0; cursor: pointer; white-space: nowrap;
+  color: var(--text-color);
+}
+.filesUI-tree-row:hover { background: var(--gray-150); }
+.filesUI-tree-row.selected { background: var(--blue-700); color: var(--white); }
+.filesUI-tree-row.selected .filesUI-tree-arrow,
+.filesUI-tree-row.selected .filesUI-tree-icon { color: var(--white); }
+
+.filesUI-tree-arrow {
+  flex: 0 0 12px; width: 12px; text-align: center;
+  color: var(--alt-text-color); font-size: 11px;
+  transition: transform 0.12s ease;
+}
+.filesUI-tree-arrow.open { transform: rotate(90deg); }
+.filesUI-tree-arrow.empty { visibility: hidden; }
+.filesUI-tree-icon { flex: 0 0 auto; color: var(--alt-text-color); }
+.filesUI-tree-label { overflow: hidden; text-overflow: ellipsis; }
+.filesUI-tree-root > .filesUI-tree-row { font-weight: bold; }
+
+.filesUI-splitter {
+  flex: 0 0 4px; cursor: col-resize; background: var(--border-color);
+}
+.filesUI-splitter:hover, .filesUI-splitter:focus { background: var(--blue-700); outline: none; }
+
+/* The preview's handle exists only while the preview does - otherwise it
+   would sit flush against the tree's handle as a second, dead bar. */
+.filesUI-splitter--preview { display: none; }
+.filesUI-preview.open + .filesUI-splitter--preview { display: block; }
+
+.filesUI-pane { flex: 1 1 auto; min-width: 0; overflow: auto; position: relative; }
+
+/* ------------------------------------------------------------- table */
+
+.filesUI-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.filesUI-table thead th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; padding: 8px 10px; font-weight: bold;
+  background: var(--background-color);
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer; white-space: nowrap; user-select: none;
+}
+.filesUI-table thead th.filesUI-col-check { cursor: default; width: 34px; }
+.filesUI-table thead th[data-sort]::after {
+  content: ''; display: inline-block; width: 10px;
+}
+.filesUI-table thead th.sorted-asc::after  { content: '\25B2'; font-size: 8px; margin-left: 4px; }
+.filesUI-table thead th.sorted-desc::after { content: '\25BC'; font-size: 8px; margin-left: 4px; }
+
+/* Row height is fixed, and must stay in step with ROW_HEIGHT in
+   js/filesUI.js: the virtualised list maps scroll offset to row index
+   arithmetically, so rows of varying height would misplace the window.
+   29px = 18px line box + 5px padding top and bottom, plus the 1px border.
+   Long names are ellipsised rather than wrapped for the same reason. */
+.filesUI-table td {
+  padding: 5px 10px; border-bottom: 1px solid var(--border-color);
+  height: 29px; box-sizing: border-box;
+  overflow: hidden; white-space: nowrap;
+}
+.filesUI-table tbody tr { cursor: default; }
+/* Stand-in rows for the parts of the listing that aren't drawn. They must
+   not react to hover or clicks - they aren't real entries. */
+.filesUI-table tbody tr.filesUI-spacer { pointer-events: none; }
+.filesUI-table tbody tr.filesUI-spacer:hover { background: none; }
+.filesUI-table tbody tr.filesUI-spacer td { height: auto; padding: 0; border: none; }
+.filesUI-table tbody tr:hover { background: var(--gray-150); }
+.filesUI-table tbody tr.selected { background: var(--blue-100); }
+.filesUI-table tbody tr.selected:hover { background: var(--blue-200); }
+/* Keyboard focus row - distinct from selection, since arrow-keying moves
+   focus without necessarily changing what's selected. */
+.filesUI-table tbody tr.focused td:first-child { box-shadow: inset 2px 0 0 var(--blue-700); }
+
+.filesUI-col-size, .filesUI-col-mtime, .filesUI-col-owner, .filesUI-col-mode { white-space: nowrap; }
+.filesUI-table td.filesUI-col-size { text-align: right; font-variant-numeric: tabular-nums; }
+.filesUI-table td.filesUI-col-mode { font-family: 'SFMono-Regular', Consolas, Menlo, monospace; font-size: 12px; }
+.filesUI-table td.filesUI-col-mtime,
+.filesUI-table td.filesUI-col-owner { color: var(--alt-text-color); }
+
+.filesUI-name-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.filesUI-name-icon { flex: 0 0 auto; width: 16px; text-align: center; color: var(--alt-text-color); }
+.filesUI-name-icon.fa-folder { color: var(--orange-500); }
+.filesUI-name-text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer;
+}
+.filesUI-name-text:hover { text-decoration: underline; }
+/* Symlink target, shown dimmed after the name. */
+.filesUI-link-target { color: var(--alt-text-color); font-size: 12px; flex: 0 0 auto; }
+
+.filesUI-empty { padding: 24px; color: var(--alt-text-color); font-style: italic; text-align: center; }
+
+/* Drag-and-drop upload overlay, shown only while a drag is over the pane. */
+.filesUI-drop {
+  position: absolute; inset: 0; display: none;
+  align-items: center; justify-content: center; gap: 10px;
+  font-size: 18px; color: var(--blue-700);
+  background: var(--black-opacity-30);
+  border: 2px dashed var(--blue-700); border-radius: 6px;
+  pointer-events: none; z-index: 2;
+}
+.filesUI-pane.dragover .filesUI-drop { display: flex; }
+
+/* ---------------------------------------------------- preview flyout */
+
+/* A flex column between the tree and the file list. Closed it has zero
+   width and clips its contents; opening animates the width so the panel
+   appears to slide out from the left, pushing the list across instead of
+   covering it. Width is never display:none, so an already-decoded <img>
+   or a buffered <video> survives a close/reopen. */
+/* The open width lives in a custom property rather than on .open directly.
+   Dragging the preview's resize handle overrides that property inline,
+   which leaves the closed rule's `width: 0` untouched - setting an inline
+   `width` instead would win over it and the panel could never collapse
+   again. */
+.filesUI-preview {
+  --filesUI-preview-width: 420px;
+  flex: 0 0 auto; width: 0; overflow: hidden;
+  background: var(--background-color);
+  transition: width 0.18s ease-out;
+}
+.filesUI-preview.open {
+  width: var(--filesUI-preview-width);
+  border-right: 1px solid var(--border-color);
+}
+/* Matching the panel's own width keeps the header, body and footer laid
+   out at their final size from the first frame rather than reflowing as
+   the panel widens. */
+.filesUI-preview-inner {
+  width: var(--filesUI-preview-width); height: 100%;
+  display: flex; flex-direction: column;
+}
+/* Animating width every frame of a drag looks like lag; the handler adds
+   this class for the duration so the panel tracks the pointer exactly. */
+.filesUI-preview.is-resizing { transition: none; }
+
+/* On a narrow window the list has no room to be pushed aside. */
+@media (max-width: 1100px) {
+  .filesUI-preview { --filesUI-preview-width: 320px; }
+}
+
+/* Respect a reduced-motion preference - the panel still appears, it just
+   doesn't slide. */
+@media (prefers-reduced-motion: reduce) {
+  .filesUI-preview { transition: none; }
+}
+
+.filesUI-preview-head {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+  padding: 9px 10px 9px 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+.filesUI-preview-title {
+  flex: 1 1 auto; min-width: 0; font-weight: bold; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.filesUI-preview-body {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px;
+}
+
+/* Media fills the panel without overflowing it. */
+.filesUI-preview-image, .filesUI-preview-media {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+}
+.filesUI-preview-audio { width: 100%; }
+.filesUI-preview-frame { width: 100%; height: 100%; border: 0; }
+
+/* Text previews align to the top-left of the panel rather than being
+   centred like media, and scroll in both directions - wrapping a log line
+   or a config file makes it harder to read, not easier. The modifier is
+   set by js/preview.js rather than using :has(), which is still too new to
+   rely on for layout. */
+.filesUI-preview-body.is-text { display: block; }
+.filesUI-preview-text {
+  margin: 0; width: 100%;
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  font-size: 12px; line-height: 1.5;
+  white-space: pre; overflow-x: auto;
+  color: var(--text-color);
+}
+
+.filesUI-preview-empty {
+  text-align: center; color: var(--alt-text-color); padding: 20px;
+}
+.filesUI-preview-empty i { font-size: 34px; opacity: 0.5; display: block; margin-bottom: 10px; }
+.filesUI-preview-empty p { margin: 4px 0; font-size: 13px; }
+.filesUI-preview-detail { font-size: 11px; opacity: 0.8; }
+
+.filesUI-preview-foot {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
+  background: var(--mild-background-color);
+}
+.filesUI-preview-metadata {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; min-width: 0;
+  font-size: 11px; color: var(--alt-text-color);
+}
+.filesUI-preview-metadata span { white-space: nowrap; }
+
+/* --------------------------------------------------------- status bar */
+
+.filesUI-statusbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex: 0 0 auto;
+  padding: 6px 2px 0; font-size: 12px; color: var(--alt-text-color);
+}
+.filesUI-usage { white-space: nowrap; }
+/* Engine-down warning. Deliberately loud and persistent - it means every
+   file operation will silently do nothing. */
+.filesUI-status-warn { color: var(--red-800); font-weight: bold; }
+.filesUI-status-warn i { color: var(--orange-500); margin-right: 4px; }
+
+/* ------------------------------------------------------ context menu */
+
+.filesUI-context {
+  position: fixed; z-index: 1100; min-width: 190px; padding: 5px 0;
+  background: var(--background-color); color: var(--text-color);
+  border: 1px solid var(--border-color); border-radius: 6px;
+  box-shadow: 0 6px 20px var(--black-opacity-30);
+  font-size: 13px;
+}
+.filesUI-context[hidden] { display: none; }
+.filesUI-context-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 14px; cursor: pointer; white-space: nowrap;
+}
+.filesUI-context-item:hover { background: var(--blue-700); color: var(--white); }
+.filesUI-context-item i { width: 14px; text-align: center; }
+.filesUI-context-item.disabled { opacity: 0.4; pointer-events: none; }
+.filesUI-context-divider { height: 1px; margin: 5px 0; background: var(--border-color); }
+.filesUI-context-header {
+  padding: 5px 14px; font-size: 11px; text-transform: uppercase;
+  color: var(--alt-text-color); letter-spacing: 0.4px;
+  overflow: hidden; text-overflow: ellipsis; max-width: 260px;
+}
+
+/* -------------------------------------------------------------- modal */
+
+.filesUI-modal-overlay {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--black-opacity-30);
+}
+.filesUI-modal-overlay[hidden] { display: none; }
+.filesUI-modal {
+  background: var(--background-color); color: var(--text-color);
+  border: 1px solid var(--border-color); border-radius: 6px;
+  padding: 20px; width: 560px; max-width: 92vw; max-height: 86vh; overflow-y: auto;
+}
+.filesUI-modal h2 { margin: 0 0 14px; }
+.filesUI-modal-actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; margin-top: 16px;
+}
+.filesUI-field { display: block; margin-bottom: 12px; font-size: 13px; }
+.filesUI-field > input[type=text],
+.filesUI-field > select {
+  display: block; width: 100%; margin-top: 4px; box-sizing: border-box;
+}
+.filesUI-hint { color: var(--alt-text-color); font-size: 11px; margin: -8px 0 12px; }
+.filesUI-error { color: var(--red-800); font-size: 13px; }
+.filesUI-error[hidden] { display: none; }
+.filesUI-warning {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; margin-bottom: 12px; border-radius: 4px; font-size: 12px;
+  background: var(--mild-background-color); border: 1px solid var(--border-color);
+}
+.filesUI-warning i { color: var(--orange-500); }
+
+/* Read-only list of what an operation is about to act on. Monospaced and
+   scroll-capped so selecting 400 files doesn't produce a 400-line dialog. */
+.filesUI-source-list {
+  max-height: 170px; overflow: auto; margin: 0 0 14px;
+  padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 4px;
+  background: var(--mild-background-color);
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  font-size: 12px; white-space: pre; line-height: 1.55;
+}
+
+/* Destination picker inside copy/move dialogs - a compact reuse of the
+   same tree the left pane draws. */
+.filesUI-picker {
+  height: 230px; overflow: auto; margin-top: 4px;
+  border: 1px solid var(--border-color); border-radius: 4px;
+  background: var(--mild-background-color);
+}
+
+.filesUI-perm-grid { display: flex; gap: 10px; }
+.filesUI-perm-grid .filesUI-field { flex: 1; }
+
+/* ----------------------------------------------------------- progress */
+
+.filesUI-progress {
+  position: fixed; right: 18px; bottom: 18px; z-index: 1300; width: 460px; max-width: 92vw;
+  padding: 12px 14px;
+  background: var(--background-color); color: var(--text-color);
+  border: 1px solid var(--border-color); border-radius: 6px;
+  box-shadow: 0 6px 20px var(--black-opacity-30);
+  font-size: 13px;
+}
+.filesUI-progress[hidden] { display: none; }
+.filesUI-progress-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 8px; font-weight: bold;
+}
+.filesUI-progress-track {
+  height: 6px; border-radius: 3px; overflow: hidden;
+  background: var(--gray-200);
+}
+.filesUI-progress-bar {
+  height: 100%; width: 0; border-radius: 3px;
+  background: var(--blue-700); transition: width 0.25s ease;
+}
+/* An operation whose total isn't known yet (rsync before it has scanned,
+   or a streaming zip) sweeps instead of filling. */
+.filesUI-progress-bar.indeterminate {
+  width: 35%; animation: filesUI-sweep 1.1s ease-in-out infinite;
+}
+@keyframes filesUI-sweep {
+  0%   { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+.filesUI-progress-text {
+  margin-top: 7px; color: var(--alt-text-color); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- mobile */
+
+@media (max-width: 800px) {
+  /* Below this width two side-by-side panes leave neither usable, so the
+     tree collapses away and navigation happens through the breadcrumb. */
+  .filesUI-tree, .filesUI-splitter { display: none; }
+  .filesUI-col-owner, .filesUI-col-mode { display: none; }
+  .filesUI-toolbar { flex-wrap: wrap; }
+  .filesUI-filter { max-width: 120px; }
+  /* Nothing left to push aside at this width - the preview takes over the
+     whole pane area while it is open, and there is nothing to resize. */
+  .filesUI-preview { --filesUI-preview-width: 100%; }
+  .filesUI-splitter--preview,
+  .filesUI-preview.open + .filesUI-splitter--preview { display: none; }
+}
