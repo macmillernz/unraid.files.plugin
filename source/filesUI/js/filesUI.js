@@ -401,6 +401,9 @@ window.filesUI = window.filesUI || {};
 
     // Rename acts on exactly one item; everything else handles a set.
     els.selectionBar.querySelector('[data-op=rename]').disabled = items.length !== 1;
+    // Extract acts on exactly one archive file.
+    els.selectionBar.querySelector('[data-op=extract]').disabled =
+      !(items.length === 1 && app.archive.isArchive(items[0]));
   }
 
   /* ------------------------------------------------------- activation */
@@ -453,12 +456,14 @@ window.filesUI = window.filesUI || {};
       case 'owner':     app.ops.owner(items); break;
       case 'perms':     app.ops.permissions(items); break;
       case 'size':      app.ops.calculateSize(items); break;
+      case 'compress':  app.archive.compress(current, items); break;
+      case 'extract':   if (items.length === 1 && app.archive.isArchive(items[0])) app.archive.extract(items[0]); break;
     }
   }
   app.runOp = runOp;
 
   function openContextMenu(x, y, items) {
-    var busy = app.ops.isRunning() || app.transfer.isUploading();
+    var busy = app.ops.isRunning() || app.transfer.isUploading() || app.archive.isRunning();
     if (busy) {
       app.contextMenu.open(x, y, [{ label: 'An operation is running', icon: 'ban', disabled: true }]);
       return;
@@ -473,6 +478,10 @@ window.filesUI = window.filesUI || {};
       { label: 'Copy',     icon: 'copy',     action: function () { runOp('copy', items); } },
       { label: 'Move',     icon: 'paste',    action: function () { runOp('move', items); } },
       { label: 'Rename',   icon: 'edit',     disabled: !single, action: function () { runOp('rename', items); } },
+      { divider: true },
+      { label: 'Compress', icon: 'file-archive-o', action: function () { runOp('compress', items); } },
+      { label: 'Extract',  icon: 'folder-open-o',  disabled: !(single && app.archive.isArchive(items[0])),
+        action: function () { runOp('extract', items); } },
       { divider: true },
       { label: 'Owner',       icon: 'user-o',     action: function () { runOp('owner', items); } },
       { label: 'Permissions', icon: 'lock',       action: function () { runOp('perms', items); } },
@@ -878,6 +887,7 @@ window.filesUI = window.filesUI || {};
     });
 
     app.ops.startMonitor();
+    app.archive.resume();
     checkEngine();
   }
 

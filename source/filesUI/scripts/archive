@@ -1,0 +1,84 @@
+#!/bin/bash
+# filesUI - run one 7-Zip compress or extract job in the background.
+#
+# Started by include/ajax.php (action=compress / extract) under setsid, so
+# this script leads its own process group and a cancel can kill it and 7z
+# together with one `kill -- -PGID`. It is invoked as `bash archive ...`
+# rather than exec'd directly, so it needs no execute bit - the same 644
+# packaging trap that once silently broke nchan/file_manager can't apply.
+#
+# Unraid's own file_manager daemon has no archive action code, which is why
+# this is the one long-running operation the plugin runs itself instead of
+# queueing through Control.php.
+#
+# State lives in $STATE (one job box-wide, mirroring Unraid's single
+# file-operation slot):
+#   pid   - this script's pid (= process group id)
+#   log   - 7z's combined output; progress is parsed from it by ajax.php
+#   rc    - exit code, written last; its presence means "finished"
+#
+# Usage:
+#   archive <state-dir> <7z-binary> compress <archive> <format> <cwd> <name>...
+#   archive <state-dir> <7z-binary> extract  <archive> <dest> <overwrite 0|1>
+
+STATE="$1"; BIN="$2"; MODE="$3"; ARCHIVE="$4"
+shift 4
+
+LOG="$STATE/log"
+MARKER="$STATE/marker"
+echo $$ > "$STATE/pid"
+: > "$LOG"
+
+# Everything the web server creates is root-owned. Hand the results back to
+# nobody:users, as Unraid does for uploads, so they are usable over SMB.
+# Only what this job created is touched: ctime can't be preserved from the
+# archive the way mtime is, so -cnewer against a marker made just before 7z
+# starts picks out exactly the new files and nothing that already existed.
+touch "$MARKER"
+fix_owner() {
+  find "$1" -cnewer "$MARKER" -exec chown nobody:users {} + 2>/dev/null
+}
+
+finish() {
+  rm -f "$MARKER"
+  echo "$1" > "$STATE/rc"
+  exit "$1"
+}
+
+# -bsp1 sends the percentage to stdout so it can be read from the log;
+# -bse1 folds errors into the same stream for the UI to show.
+case "$MODE" in
+compress)
+  FORMAT="$1"; CWD="$2"; shift 2
+  EXISTED=0; [ -e "$ARCHIVE" ] && EXISTED=1
+
+  # A cancelled compress leaves a truncated archive behind - remove it,
+  # but never one that was already there before this job.
+  trap '[ $EXISTED = 0 ] && rm -f "$ARCHIVE" "$ARCHIVE".tmp*; finish 130' TERM INT
+
+  # Names are relative to $CWD so the archive holds "Photos/..." rather
+  # than "mnt/user/Photos/...". -- stops a name starting with '-' being
+  # read as a switch.
+  cd "$CWD" || finish 2
+  "$BIN" a -t"$FORMAT" -y -bsp1 -bso1 -bse1 -- "$ARCHIVE" "$@" >>"$LOG" 2>&1
+  RC=$?
+  [ $RC -ne 0 ] && [ $RC -ne 1 ] && [ $EXISTED = 0 ] && rm -f "$ARCHIVE"
+  [ -e "$ARCHIVE" ] && chown nobody:users "$ARCHIVE" 2>/dev/null
+  finish $RC
+  ;;
+extract)
+  DEST="$1"; OVERWRITE="$2"
+  trap 'fix_owner "$DEST"; finish 130' TERM INT
+
+  # -aos skips files that already exist; -aoa overwrites them.
+  POLICY=-aos; [ "$OVERWRITE" = 1 ] && POLICY=-aoa
+  mkdir -p "$DEST" || finish 2
+  "$BIN" x $POLICY -y -bsp1 -bso1 -bse1 "-o$DEST" -- "$ARCHIVE" >>"$LOG" 2>&1
+  RC=$?
+  fix_owner "$DEST"
+  finish $RC
+  ;;
+*)
+  finish 2
+  ;;
+esac

@@ -24,13 +24,13 @@ built-in File Manager (Shares -> Browse) exactly where it is. That means no
 <!-- Version follows year.month.day.n - bump n for each same-day release,
      reset to 1 when the date changes. package.sh reads this value as its
      default (single source of truth) rather than generating its own. -->
-<!ENTITY version   "2026.08.04.5">
+<!ENTITY version   "2026.10.13.1">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/macmillernz/unraid.files.plugin/main/filesUI.plg">
 <!ENTITY SRC       "https://github.com/macmillernz/unraid.files.plugin/releases/download/&version;/filesUI-&version;.txz">
 <!-- MD5 of the .txz package.sh currently produces. Re-run package.sh and
      update this whenever source/ changes, or the plugin manager will
      refuse the download as corrupt. -->
-<!ENTITY MD5       "605e82db49444c011c64efa6d1e51b2a">
+<!ENTITY MD5       "b5c7de0405cdfa11038bd54ba6b724ea">
 <!ENTITY emhttp    "/usr/local/emhttp/plugins/&name;">
 <!ENTITY configdir "/boot/config/plugins/&name;">
 ]>
@@ -38,6 +38,16 @@ built-in File Manager (Shares -> Browse) exactly where it is. That means no
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;" icon="files.png" min="6.12.0">
 
   <CHANGES>
+###2026.10.13.1
+- New Compress and Extract actions, in the selection bar and the
+  right-click menu, using 7-Zip on the server. Compress writes a .7z or
+  .zip next to the selection; Extract unpacks an archive into a new folder
+  named after it (or anywhere you pick), skipping existing files unless you
+  ask to overwrite. Jobs run in the background with progress and cancel,
+  carry on if you reload the page, and leave their output owned by
+  nobody:users so it works over SMB. Unraid has no 7-Zip, so the plugin
+  now bundles upstream 7-Zip 26.03 (static Linux x64 build).
+
 ###2026.08.04.5
 - Dropped the "User Shares (no cache)" root. It was /mnt/user0, the legacy
   array-only view of the same shares, so it showed up as a second and

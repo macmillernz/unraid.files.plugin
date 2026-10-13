@@ -119,6 +119,39 @@ window.filesUI = window.filesUI || {};
     }).then(parseJSON);
   };
 
+  /* 7-Zip compress/extract. Like makeFile these go to this plugin's own
+     endpoint, because Unraid's file_manager daemon has no archive action -
+     see include/ajax.php's archive section.
+
+     Values are encoded twice, the same as control() does with its
+     already-enc()'d fields: PHP decodes the form body once and ajax.php
+     rawurldecode()s again, so a single encoding would turn a real "%20"
+     in a filename into a space. */
+  function post(action, fields) {
+    var body = Object.keys(fields)
+      .map(function (k) { return k + '=' + enc(enc(fields[k])); })
+      .join('&');
+    return request(AJAX + '?action=' + action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRF-Token': app.csrf()
+      },
+      body: body
+    }).then(parseJSON);
+  }
+
+  app.archiveStatus = function () { return getJSON({ action: 'archive_status' }); };
+  app.compress = function (dir, names, archiveName, format) {
+    return post('compress', { path: dir, names: names.join('\n'), name: archiveName, format: format });
+  };
+  app.extract = function (archive, dest, overwrite) {
+    return post('extract', { path: archive, dest: dest, overwrite: overwrite ? '1' : '' });
+  };
+  app.archiveCancel  = function () { return post('archive_cancel', {}); };
+  app.archiveDismiss = function () { return post('archive_dismiss', {}); };
+
   /* URL that serves a file for *display* rather than download - used by
      the preview panel for images, video, audio, PDFs and text. */
   app.inlineUrl = function (path) {

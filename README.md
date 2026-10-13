@@ -22,6 +22,12 @@ drive). Nothing outside those roots is reachable.
   PDFs and text/code render inline; anything else shows a metadata card with
   a Download button. `Space` toggles it, arrow keys move it through the
   folder, `Esc` closes it.
+- **Archive** — compress a selection to `.7z` or `.zip`, or extract an
+  archive (7z, zip, rar, tar, gz, xz, iso…) into a folder, using 7-Zip on
+  the server. Runs in the background with progress and cancel; results are
+  owned by `nobody:users`. Unraid has no 7-Zip, so the plugin bundles
+  upstream 7-Zip's static Linux build (pinned and checksum-verified by
+  `fetch-7zip.sh`).
 - **Transfer** — upload by button or drag-and-drop (chunked, with progress,
   speed and cancel); download a single file (streamed, resumable) or a
   multi-selection/folder (streamed as a zip, built on the fly).
@@ -86,6 +92,7 @@ filesUI.plg                  plugin descriptor; <!ENTITY version> is the
                              single source of truth for the version
 package.sh                   builds source/filesUI into a .txz for release
 deploy.sh                    rsyncs source/filesUI to a dev box, no packaging
+fetch-7zip.sh                downloads the pinned 7-Zip into vendor/ (gitignored)
 source/filesUI/
   Files.page                 the tab: frontmatter + markup
   css/filesUI.css
@@ -96,10 +103,13 @@ source/filesUI/
   js/preview.js              preview flyout
   js/operations.js           operation dialogs + nchan progress
   js/transfer.js             chunked upload, download
+  js/archive.js              7-Zip compress/extract dialogs + progress polling
   js/filesUI.js              main controller: list, selection, keyboard
   include/FilesHelper.php    path validation, listing, stat formatting
-  include/ajax.php           read-only JSON API
+  include/ajax.php           JSON API: reads, plus mkfile and 7-Zip jobs
   include/download.php       streamed download / on-the-fly zip
+  scripts/archive            runs one 7-Zip job in the background (run via
+                             bash, so it needs no execute bit)
   nchan/file_manager         supervisor that keeps Unraid's file-operation
                              engine running (required - see above)
   images/files.png           plugin icon

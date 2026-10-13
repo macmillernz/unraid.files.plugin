@@ -260,3 +260,123 @@ function files_icon(string $ext): string {
   }
   return $map[$ext] ?? 'file-o';
 }
+
+/**
+ * Whether $name is a single, safe path component: no separators, no
+ * traversal, no NUL. Used for anything the client names inside a folder.
+ */
+function files_valid_name(string $name): bool {
+  return $name !== '' && $name !== '.' && $name !== '..'
+    && strpos($name, '/') === false && strpos($name, "\0") === false;
+}
+
+/* ------------------------------------------------------------------ 7-Zip
+ *
+ * One archive job runs at a time, tracked in FILES_ARCHIVE_STATE and run
+ * by scripts/archive (see that file for the state-file layout). A finished
+ * job's result stays until the UI dismisses it, so a page reload - or a
+ * second browser - still learns how it ended.
+ */
+
+const FILES_ARCHIVE_STATE = '/var/tmp/filesUI.archive';
+
+/**
+ * The 7-Zip binary to use, or '' if none is found. Unraid ships none, so
+ * the plugin bundles upstream 7-Zip as bin/7zz (see fetch-7zip.sh) and
+ * that is what normally answers. A system 7zz/7z/7za is only a fallback,
+ * for a dev box synced without the vendored binary.
+ */
+function files_7z_binary(): string {
+  $bundled = dirname(__DIR__).'/bin/7zz';
+  if (is_file($bundled) && is_executable($bundled)) return $bundled;
+  foreach (['7zz', '7z', '7za'] as $name) {
+    foreach (['/usr/bin', '/usr/local/bin', '/bin'] as $dir) {
+      if (is_file("$dir/$name") && is_executable("$dir/$name")) return "$dir/$name";
+    }
+  }
+  return '';
+}
+
+/**
+ * Current archive job: state is 'idle', 'running' or 'done'. A running
+ * job carries a percent (or null before 7z reports one); a done job
+ * carries rc and, on failure, the tail of 7z's output.
+ */
+function files_archive_status(): array {
+  $s = FILES_ARCHIVE_STATE;
+  $job = @json_decode(@file_get_contents("$s/job") ?: '', true);
+  if (!is_array($job)) return ['state' => 'idle', 'available' => files_7z_binary() !== ''];
+
+  $out = ['state' => 'running', 'title' => $job['title'] ?? '', 'mode' => $job['mode'] ?? '', 'target' => $job['target'] ?? ''];
+  $rc = @file_get_contents("$s/rc");
+  $pid = (int)@file_get_contents("$s/pid");
+
+  if ($rc === false) {
+    // No exit code yet: running if the script is alive, or if it was only
+    // just launched and hasn't written its pid. Anything else died without
+    // reporting (killed by OOM, a reboot of emhttp) and counts as failed.
+    $alive = $pid > 0 ? file_exists("/proc/$pid") : (time() - (int)($job['started'] ?? 0) < 10);
+    if ($alive) {
+      $out['percent'] = files_archive_percent("$s/log");
+      return $out;
+    }
+    $rc = '-1';
+  }
+
+  $out['state'] = 'done';
+  $out['rc'] = (int)trim($rc);
+  // 7z: 0 ok, 1 warning (e.g. a file changed while being read) - both
+  // produced a usable result. 130 is our own cancel.
+  if ($out['rc'] > 1 && $out['rc'] !== 130) $out['error'] = files_archive_errors("$s/log");
+  return $out;
+}
+
+/** Last percentage 7z printed. The log is \b-redrawn progress, so only the tail matters. */
+function files_archive_percent(string $log): ?int {
+  $size = @filesize($log);
+  if (!$size) return null;
+  $tail = @file_get_contents($log, false, null, max(0, $size - 4096));
+  return preg_match_all('/(\d{1,3})%/', (string)$tail, $m) ? min(100, (int)end($m[1])) : null;
+}
+
+/** The meaningful end of 7z's output, with progress redraws removed. */
+function files_archive_errors(string $log): string {
+  $size = (int)@filesize($log);
+  $text = (string)@file_get_contents($log, false, null, max(0, $size - 16384));
+  $lines = [];
+  foreach (preg_split('/[\r\n\x08]+/', $text) as $line) {
+    $line = trim($line);
+    if ($line === '' || preg_match('/^\d+%/', $line)) continue;
+    $lines[] = $line;
+  }
+  $msg = implode("\n", array_slice($lines, -15));
+  return $msg !== '' ? $msg : '7-Zip exited without saying why.';
+}
+
+/** Launch scripts/archive detached, in its own session so cancel can kill the whole group. */
+function files_archive_start(string $bin, string $mode, string $archive, array $args, string $title): void {
+  files_archive_clear();
+  $s = FILES_ARCHIVE_STATE;
+  @mkdir($s, 0700, true);
+  file_put_contents("$s/job", json_encode([
+    'mode' => $mode, 'title' => $title, 'target' => $archive, 'started' => time(),
+  ]));
+
+  $cmd = array_map('escapeshellarg', array_merge(
+    [__DIR__.'/../scripts/archive', $s, $bin, $mode, $archive], $args));
+  exec('setsid nohup /bin/bash '.implode(' ', $cmd).' >/dev/null 2>&1 &');
+}
+
+function files_archive_cancel(): void {
+  $pid = (int)@file_get_contents(FILES_ARCHIVE_STATE.'/pid');
+  // The script leads its own process group (setsid), so this reaches 7z
+  // too; the script's TERM trap then cleans up and writes rc=130.
+  if ($pid > 1 && !file_exists(FILES_ARCHIVE_STATE.'/rc')) @exec("kill -TERM -- -$pid 2>/dev/null");
+}
+
+/** Forget a finished job. Never removes a running one's state. */
+function files_archive_clear(): void {
+  $s = FILES_ARCHIVE_STATE;
+  if (files_archive_status()['state'] === 'running') return;
+  foreach (['job', 'pid', 'log', 'rc', 'marker'] as $f) @unlink("$s/$f");
+}

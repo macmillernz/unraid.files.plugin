@@ -14,8 +14,14 @@ cd "$(dirname "$0")"
 
 : "${FILES_UI_HOST:?Set FILES_UI_HOST to user@host of the test box}"
 
-rsync -av --delete --exclude '.DS_Store' \
+./fetch-7zip.sh
+
+# bin/ is excluded so --delete doesn't remove the bundled 7-Zip, which
+# isn't in source/ - it is synced from vendor/ just after.
+rsync -av --delete --exclude '.DS_Store' --exclude '/bin/' \
   source/filesUI/ "${FILES_UI_HOST}:/usr/local/emhttp/plugins/filesUI/"
+rsync -av vendor/7zip/7zz vendor/7zip/7zip-License.txt \
+  "${FILES_UI_HOST}:/usr/local/emhttp/plugins/filesUI/bin/"
 
 ssh "${FILES_UI_HOST}" '
   find /usr/local/emhttp/plugins/filesUI -type f -exec chmod 644 {} +
@@ -23,6 +29,7 @@ ssh "${FILES_UI_HOST}" '
   # emhttp exec()s the nchan hooks directly - without +x the file-operation
   # engine never starts and every action hangs. See source/filesUI/nchan/.
   chmod +x /usr/local/emhttp/plugins/filesUI/nchan/*
+  chmod +x /usr/local/emhttp/plugins/filesUI/bin/7zz
   mkdir -p /boot/config/plugins/filesUI
 '
 

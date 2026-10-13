@@ -154,6 +154,9 @@ window.filesUI = window.filesUI || {};
     cancelEl   = document.getElementById('filesUI-progress-cancel');
 
     cancelEl.addEventListener('click', function () {
+      // The strip is shared with uploads and archive jobs, which take over
+      // the button with their own handler; only act for a file operation.
+      if (!running) return;
       app.modal.confirm({
         title: 'Cancel operation?',
         body: '<p>The running operation will be stopped. Anything already copied or moved stays where it is.</p>',

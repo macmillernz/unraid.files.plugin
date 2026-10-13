@@ -59,6 +59,8 @@ Nchan="file_manager"
       <button data-op="copy"     class="filesUI-btn filesUI-btn-small"><i class="fa fa-copy"></i> Copy</button>
       <button data-op="move"     class="filesUI-btn filesUI-btn-small"><i class="fa fa-paste"></i> Move</button>
       <button data-op="rename"   class="filesUI-btn filesUI-btn-small"><i class="fa fa-edit"></i> Rename</button>
+      <button data-op="compress" class="filesUI-btn filesUI-btn-small"><i class="fa fa-file-archive-o"></i> Compress</button>
+      <button data-op="extract"  class="filesUI-btn filesUI-btn-small"><i class="fa fa-folder-open-o"></i> Extract</button>
       <button data-op="owner"    class="filesUI-btn filesUI-btn-small"><i class="fa fa-user-o"></i> Owner</button>
       <button data-op="perms"    class="filesUI-btn filesUI-btn-small"><i class="fa fa-lock"></i> Permissions</button>
       <button data-op="size"     class="filesUI-btn filesUI-btn-small"><i class="fa fa-calculator"></i> Size</button>
@@ -165,4 +167,5 @@ Nchan="file_manager"
 <script src="<?autov('/plugins/filesUI/js/preview.js')?>"></script>
 <script src="<?autov('/plugins/filesUI/js/operations.js')?>"></script>
 <script src="<?autov('/plugins/filesUI/js/transfer.js')?>"></script>
+<script src="<?autov('/plugins/filesUI/js/archive.js')?>"></script>
 <script src="<?autov('/plugins/filesUI/js/filesUI.js')?>"></script>

@@ -18,6 +18,9 @@
  * mode Unraid gives an uploaded file (nobody:users, 0666) so a new file in
  * a share is usable over SMB rather than root-owned.
  *
+ * The other exception is 7-Zip compress/extract - see the archive section
+ * below.
+ *
  * CSRF for POSTs is already enforced globally by
  * webGui/include/local_prepend.php (php.ini auto_prepend_file) before this
  * script runs; re-checking here would see the already-stripped token and
@@ -153,6 +156,87 @@ case 'mkfile':
   @chgrp($target, 'users');
 
   exit(json_encode(['path' => $target, 'name' => $name]));
+
+/* ---------------------------------------------------------------- 7-Zip
+ *
+ * Compress and extract are the second exception to "every mutation goes
+ * through Control.php": Unraid's file_manager daemon has no archive action
+ * code to delegate to. They run as this plugin's own background job via
+ * scripts/archive, one at a time box-wide, with progress read back from
+ * 7z's own -bsp1 output. See FilesHelper.php's archive helpers.
+ */
+
+case 'archive_status':
+  exit(json_encode(files_archive_status()));
+
+case 'compress':
+case 'extract':
+case 'archive_cancel':
+case 'archive_dismiss':
+  // POST-only, so Unraid's global CSRF guard applies (see file header).
+  if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') files_fail('POST required', 405);
+
+  if ($action === 'archive_cancel') {
+    files_archive_cancel();
+    exit(json_encode(['ok' => true]));
+  }
+  if ($action === 'archive_dismiss') {
+    files_archive_clear();
+    exit(json_encode(['ok' => true]));
+  }
+
+  $bin = files_7z_binary();
+  if ($bin === '') files_fail('The bundled 7-Zip binary is missing - reinstall the filesUI plugin.', 501);
+  if (files_archive_status()['state'] === 'running') files_fail('Another archive job is already running.', 409);
+
+  if ($action === 'compress') {
+    $dir = files_valid_dir($path);
+    if ($dir === '') files_fail('Not a directory under /mnt or /boot');
+    if (!is_writable($dir)) files_fail('Directory is not writable', 403);
+
+    // Sources are names inside $dir, one per line - never paths, so the
+    // archive can't be pointed at anything outside the folder on screen.
+    $names = array_values(array_filter(explode("\n", rawurldecode($_POST['names'] ?? '')), 'strlen'));
+    if (!$names) files_fail('Nothing selected');
+    foreach ($names as $n) {
+      if (!files_valid_name($n)) files_fail('Invalid item name: '.$n);
+      if (!file_exists($dir.'/'.$n) && !is_link($dir.'/'.$n)) files_fail('No such item: '.$n, 404);
+    }
+
+    $format = rawurldecode($_POST['format'] ?? '7z');
+    if (!in_array($format, ['7z', 'zip'], true)) files_fail('Unsupported format');
+
+    $archive = rawurldecode($_POST['name'] ?? '');
+    if (!files_valid_name($archive)) files_fail('Invalid archive name');
+    if (strlen($archive) > 255) files_fail('Archive name is too long');
+    $target = $dir.'/'.$archive;
+    if (file_exists($target)) files_fail('Something with that name already exists', 409);
+
+    files_archive_start($bin, 'compress', $target,
+      array_merge([$format, $dir], $names),
+      'Compressing to '.$archive);
+    exit(json_encode(['ok' => true]));
+  }
+
+  // extract
+  $archive = files_valid_file($path);
+  if ($archive === '') files_fail('Not a file under /mnt or /boot', 404);
+
+  // The destination may not exist yet (the default is a new folder named
+  // after the archive), so validate its parent and the final component.
+  $dest = files_canonical(rawurldecode($_POST['dest'] ?? ''));
+  $parent = files_valid_dir(dirname($dest));
+  if ($parent === '' || !files_valid_name(basename($dest))) {
+    files_fail('Destination must be a folder under /mnt or /boot');
+  }
+  $dest = $parent.'/'.basename($dest);
+  if (file_exists($dest) && !is_dir($dest)) files_fail('Destination exists and is not a folder', 409);
+  if (!is_writable($parent)) files_fail('Destination is not writable', 403);
+
+  $overwrite = rawurldecode($_POST['overwrite'] ?? '') === '1' ? '1' : '0';
+  files_archive_start($bin, 'extract', $archive, [$dest, $overwrite],
+    'Extracting '.basename($archive));
+  exit(json_encode(['ok' => true]));
 
 default:
   files_fail('Unknown action');
